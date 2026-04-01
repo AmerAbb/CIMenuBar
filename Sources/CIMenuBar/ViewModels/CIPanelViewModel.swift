@@ -34,6 +34,8 @@ final class CIPanelViewModel: ObservableObject {
     @Published var isRefreshing = false
 
     private let keychainService = KeychainService()
+    private var previousRunStatuses: [Int: WorkflowRun.RunStatus] = [:]
+    private var previousBaseBranchShas: [String: String] = [:]
 
     static func classify(
         prsWithStatus: [PRWithStatus],
@@ -91,6 +93,23 @@ final class CIPanelViewModel: ObservableObject {
                         failedJobName: failedJobName
                     ))
                 }
+
+                // Check for base branch changes (rebase alerts)
+                let myRepoPRs = prs.filter { $0.user.login == username }
+                let baseBranches = Set(myRepoPRs.map { $0.base.ref })
+                for baseBranch in baseBranches {
+                    let key = "\(repo.owner)/\(repo.name)/\(baseBranch)"
+                    if let currentSha = try? await client.fetchBranchSha(owner: repo.owner, repo: repo.name, branch: baseBranch) {
+                        if let previousSha = previousBaseBranchShas[key], previousSha != currentSha {
+                            let affectedPR = myRepoPRs.first { $0.base.ref == baseBranch }
+                            NotificationService.shared.sendRebaseNeeded(
+                                prTitle: affectedPR?.title ?? "Your PR",
+                                baseBranch: baseBranch
+                            )
+                        }
+                        previousBaseBranchShas[key] = currentSha
+                    }
+                }
             } catch {
                 continue
             }
@@ -100,6 +119,21 @@ final class CIPanelViewModel: ObservableObject {
         myPRs = classified.mine
         teamPRs = classified.team
         aggregateMenuBarStatus = Self.aggregateStatus(for: classified.mine)
+
+        // Send notifications for status changes on my PRs
+        for pr in classified.mine {
+            guard let run = pr.latestRun else { continue }
+            let previousStatus = previousRunStatuses[pr.pullRequest.number]
+
+            if previousStatus == .inProgress && run.status == .completed {
+                let passed = run.conclusion == .success
+                NotificationService.shared.sendCheckCompleted(
+                    prTitle: pr.pullRequest.title,
+                    passed: passed
+                )
+            }
+            previousRunStatuses[pr.pullRequest.number] = run.status
+        }
         isRefreshing = false
     }
 
