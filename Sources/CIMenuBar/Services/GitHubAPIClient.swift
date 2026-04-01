@@ -86,10 +86,25 @@ final class GitHubAPIClient {
         let user = try decoder.decode(PullRequest.User.self, from: data)
         return user.login
     }
+
+    func fetchBranchSha(owner: String, repo: String, branch: String) async throws -> String {
+        let request = buildRequest(path: "/repos/\(owner)/\(repo)/git/ref/heads/\(branch)")
+        let (data, _) = try await session.data(for: request)
+        let ref = try decoder.decode(GitRef.self, from: data)
+        return ref.object.sha
+    }
 }
 
 enum GitHubAPIError: Error {
     case rerunFailed
+}
+
+struct GitRef: Codable {
+    let object: RefObject
+
+    struct RefObject: Codable {
+        let sha: String
+    }
 }
 
 struct GitHubRepo: Codable, Identifiable {
