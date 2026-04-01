@@ -6,7 +6,7 @@ struct CIMenuBarApp: App {
 
     var body: some Scene {
         MenuBarExtra {
-            ContentPlaceholder(appState: appState)
+            MenuBarContent(appState: appState)
         } label: {
             Image(systemName: "circle.fill")
                 .foregroundStyle(.gray)
@@ -15,17 +15,23 @@ struct CIMenuBarApp: App {
     }
 }
 
-private struct ContentPlaceholder: View {
+private struct MenuBarContent: View {
     @ObservedObject var appState: AppState
+    @StateObject private var setupViewModel = SetupViewModel()
 
     var body: some View {
-        VStack {
-            Text("CI Menu Bar")
-                .font(.headline)
-            Text("Setup coming soon")
-                .foregroundStyle(.secondary)
+        Group {
+            switch appState.setupStatus {
+            case .needsSetup:
+                SetupView(viewModel: setupViewModel, appState: appState)
+            case .ready:
+                Text("CI Panel coming next...")
+                    .padding()
+                    .frame(width: 350)
+            }
         }
-        .padding()
-        .frame(width: 350)
+        .onAppear {
+            appState.checkSetup()
+        }
     }
 }
