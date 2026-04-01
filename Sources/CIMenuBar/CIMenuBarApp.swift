@@ -3,20 +3,34 @@ import SwiftUI
 @main
 struct CIMenuBarApp: App {
     @StateObject private var appState = AppState()
+    @StateObject private var ciPanelViewModel = CIPanelViewModel()
 
     var body: some Scene {
         MenuBarExtra {
-            MenuBarContent(appState: appState)
+            MenuBarContent(
+                appState: appState,
+                ciPanelViewModel: ciPanelViewModel
+            )
         } label: {
             Image(systemName: "circle.fill")
-                .foregroundStyle(.gray)
+                .foregroundStyle(menuBarColor)
         }
         .menuBarExtraStyle(.window)
+    }
+
+    private var menuBarColor: Color {
+        switch ciPanelViewModel.aggregateMenuBarStatus {
+        case .noPRs: return .gray
+        case .allPassing: return .green
+        case .running: return .yellow
+        case .hasFailing: return .red
+        }
     }
 }
 
 private struct MenuBarContent: View {
     @ObservedObject var appState: AppState
+    @ObservedObject var ciPanelViewModel: CIPanelViewModel
     @StateObject private var setupViewModel = SetupViewModel()
 
     var body: some View {
@@ -25,9 +39,11 @@ private struct MenuBarContent: View {
             case .needsSetup:
                 SetupView(viewModel: setupViewModel, appState: appState)
             case .ready:
-                Text("CI Panel coming next...")
-                    .padding()
-                    .frame(width: 350)
+                CIPanelView(
+                    viewModel: ciPanelViewModel,
+                    username: appState.githubUsername,
+                    watchedRepos: appState.decodedWatchedRepos
+                )
             }
         }
         .onAppear {
