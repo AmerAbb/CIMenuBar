@@ -1,4 +1,5 @@
 import SwiftUI
+import ServiceManagement
 
 @MainActor
 final class AppState: ObservableObject {
@@ -22,6 +23,21 @@ final class AppState: ObservableObject {
             setupStatus = .ready
         } else {
             setupStatus = .needsSetup
+        }
+    }
+
+    var isLaunchAtLoginEnabled: Bool {
+        get { SMAppService.mainApp.status == .enabled }
+        set {
+            do {
+                if newValue {
+                    try SMAppService.mainApp.register()
+                } else {
+                    try SMAppService.mainApp.unregister()
+                }
+            } catch {
+                // Silently fail — user can toggle again
+            }
         }
     }
 }
