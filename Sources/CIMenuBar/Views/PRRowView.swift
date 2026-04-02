@@ -2,8 +2,8 @@ import SwiftUI
 
 struct PRRowView: View {
     let prWithStatus: PRWithStatus
-    let onRerun: () async -> Void
-    let onUpdateBranch: () async -> Void
+    let onRerun: () async -> Bool
+    let onUpdateBranch: () async -> Bool
     let onMerge: () async -> Bool
     let onOpenInGitHub: () -> Void
 
@@ -51,16 +51,16 @@ struct PRRowView: View {
                 if prWithStatus.latestRun?.conclusion == .failure {
                     actionButton(label: "Re-run failed", state: rerunState) {
                         rerunState = .loading
-                        await onRerun()
-                        rerunState = .done
+                        let success = await onRerun()
+                        rerunState = success ? .done : .failed
                     }
                 }
                 if prWithStatus.behindBy > 0 {
                     // Behind base branch — update first, then merge after CI re-runs
                     actionButton(label: "Update branch", state: rebaseState) {
                         rebaseState = .loading
-                        await onUpdateBranch()
-                        rebaseState = .done
+                        let success = await onUpdateBranch()
+                        rebaseState = success ? .done : .failed
                     }
                 } else if prWithStatus.mergeableState == "clean" {
                     actionButton(label: "Merge", state: mergeState) {

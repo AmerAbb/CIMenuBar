@@ -207,17 +207,22 @@ final class CIPanelViewModel: ObservableObject {
         refreshInProgress = false
     }
 
-    func rerunFailedJobs(for prWithStatus: PRWithStatus) async {
+    func rerunFailedJobs(for prWithStatus: PRWithStatus) async -> Bool {
         guard let token = try? keychainService.retrieve(forKey: SetupViewModel.tokenKey),
-              let run = prWithStatus.latestRun else { return }
+              let run = prWithStatus.latestRun else { return false }
 
         let parts = prWithStatus.pullRequest.htmlUrl.components(separatedBy: "/")
-        guard parts.count >= 5 else { return }
+        guard parts.count >= 5 else { return false }
         let owner = parts[3]
         let repo = parts[4]
 
         let client = GitHubAPIClient(token: token)
-        try? await client.rerunFailedJobs(owner: owner, repo: repo, runId: run.id)
+        do {
+            try await client.rerunFailedJobs(owner: owner, repo: repo, runId: run.id)
+            return true
+        } catch {
+            return false
+        }
     }
 
     func mergePullRequest(for prWithStatus: PRWithStatus) async -> Bool {
@@ -237,15 +242,20 @@ final class CIPanelViewModel: ObservableObject {
         }
     }
 
-    func updateBranchWithRebase(for prWithStatus: PRWithStatus) async {
-        guard let token = try? keychainService.retrieve(forKey: SetupViewModel.tokenKey) else { return }
+    func updateBranchWithRebase(for prWithStatus: PRWithStatus) async -> Bool {
+        guard let token = try? keychainService.retrieve(forKey: SetupViewModel.tokenKey) else { return false }
 
         let parts = prWithStatus.pullRequest.htmlUrl.components(separatedBy: "/")
-        guard parts.count >= 5 else { return }
+        guard parts.count >= 5 else { return false }
         let owner = parts[3]
         let repo = parts[4]
 
         let client = GitHubAPIClient(token: token)
-        try? await client.updateBranchWithRebase(owner: owner, repo: repo, pullNumber: prWithStatus.pullRequest.number)
+        do {
+            try await client.updateBranchWithRebase(owner: owner, repo: repo, pullNumber: prWithStatus.pullRequest.number)
+            return true
+        } catch {
+            return false
+        }
     }
 }
