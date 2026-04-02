@@ -17,5 +17,6 @@ struct PullRequest: Codable, Identifiable {
 
     struct BranchRef: Codable {
         let ref: String
+        let sha: String?
     }
 }

@@ -4,6 +4,9 @@ struct PRWithStatus: Identifiable {
     let pullRequest: PullRequest
     let latestRun: WorkflowRun?
     let failedJobName: String?
+    let jobStartedAt: Date?
+    let behindBy: Int
+    let mergeable: Bool?
 
     var id: Int { pullRequest.number }
 
@@ -32,10 +35,19 @@ final class CIPanelViewModel: ObservableObject {
     @Published var teamPRs: [PRWithStatus] = []
     @Published var aggregateMenuBarStatus: AggregateStatus = .noPRs
     @Published var isRefreshing = false
+    @Published var lastRefreshedAt: Date?
+
+    var hasData: Bool { lastRefreshedAt != nil }
+
+    func isStale(threshold: TimeInterval = 30) -> Bool {
+        guard let lastRefreshedAt else { return true }
+        return Date().timeIntervalSince(lastRefreshedAt) > threshold
+    }
 
     private let keychainService = KeychainService()
     private var previousRunStatuses: [Int: WorkflowRun.RunStatus] = [:]
     private var previousBaseBranchShas: [String: String] = [:]
+    private var refreshInProgress = false
 
     static func classify(
         prsWithStatus: [PRWithStatus],
@@ -64,35 +76,87 @@ final class CIPanelViewModel: ObservableObject {
     }
 
     func refresh(username: String, watchedRepos: [WatchedRepo]) async {
+        guard !refreshInProgress else { return }
         guard let token = try? keychainService.retrieve(forKey: SetupViewModel.tokenKey) else { return }
-        isRefreshing = true
+        refreshInProgress = true
+        // Only show the spinner when we have nothing to display yet
+        if !hasData {
+            isRefreshing = true
+        }
 
         let client = GitHubAPIClient(token: token)
         var allPRsWithStatus: [PRWithStatus] = []
+        var anyRepoSucceeded = false
 
         for repo in watchedRepos {
             do {
-                let prs = try await client.fetchOpenPRs(owner: repo.owner, repo: repo.name)
-                let runs = try await client.fetchWorkflowRuns(owner: repo.owner, repo: repo.name)
+                async let prsTask = client.fetchOpenPRs(owner: repo.owner, repo: repo.name)
+                async let runsTask = client.fetchWorkflowRuns(owner: repo.owner, repo: repo.name)
+                let (prs, runs) = try await (prsTask, runsTask)
 
-                for pr in prs {
-                    let matchingRun = runs
-                        .filter { run in run.pullRequests.contains { $0.number == pr.number } }
-                        .sorted { $0.createdAt > $1.createdAt }
-                        .first
+                // Enrich each PR in parallel
+                let enrichedPRs: [PRWithStatus] = await withTaskGroup(of: PRWithStatus?.self) { group in
+                    for pr in prs {
+                        group.addTask {
+                            let candidateRuns = runs.filter { run in
+                                run.pullRequests.contains { $0.number == pr.number }
+                                    || run.headSha == pr.head.sha
+                            }
+                            let matchingRun = candidateRuns
+                                .sorted { lhs, rhs in
+                                    let lhsActive = lhs.status == .inProgress || lhs.status == .queued
+                                    let rhsActive = rhs.status == .inProgress || rhs.status == .queued
+                                    if lhsActive != rhsActive { return lhsActive }
+                                    return lhs.createdAt > rhs.createdAt
+                                }
+                                .first
 
-                    var failedJobName: String?
-                    if matchingRun?.conclusion == .failure, let runId = matchingRun?.id {
-                        let jobs = try await client.fetchJobs(owner: repo.owner, repo: repo.name, runId: runId)
-                        failedJobName = jobs.first { $0.conclusion == .failure }?.name
+                            var failedJobName: String?
+                            var jobStartedAt: Date?
+
+                            if let runId = matchingRun?.id {
+                                let needsJobs = matchingRun?.conclusion == .failure
+                                    || matchingRun?.status == .inProgress
+                                if needsJobs {
+                                    if let jobs = try? await client.fetchJobs(owner: repo.owner, repo: repo.name, runId: runId) {
+                                        failedJobName = jobs.first { $0.conclusion == .failure }?.name
+                                        jobStartedAt = jobs.compactMap(\.startedAt).min()
+                                    }
+                                }
+                            }
+
+                            async let behindByTask = client.fetchBehindBy(
+                                owner: repo.owner, repo: repo.name,
+                                base: pr.base.ref, head: pr.head.ref
+                            )
+                            async let mergeableTask = client.fetchPRMergeable(
+                                owner: repo.owner, repo: repo.name,
+                                pullNumber: pr.number
+                            )
+
+                            let behindBy = (try? await behindByTask) ?? 0
+                            let mergeable = try? await mergeableTask
+
+                            return PRWithStatus(
+                                pullRequest: pr,
+                                latestRun: matchingRun,
+                                failedJobName: failedJobName,
+                                jobStartedAt: jobStartedAt,
+                                behindBy: behindBy,
+                                mergeable: mergeable
+                            )
+                        }
                     }
 
-                    allPRsWithStatus.append(PRWithStatus(
-                        pullRequest: pr,
-                        latestRun: matchingRun,
-                        failedJobName: failedJobName
-                    ))
+                    var results: [PRWithStatus] = []
+                    for await result in group {
+                        if let pr = result { results.append(pr) }
+                    }
+                    return results
                 }
+
+                allPRsWithStatus.append(contentsOf: enrichedPRs)
+                anyRepoSucceeded = true
 
                 // Check for base branch changes (rebase alerts)
                 let myRepoPRs = prs.filter { $0.user.login == username }
@@ -115,26 +179,32 @@ final class CIPanelViewModel: ObservableObject {
             }
         }
 
-        let classified = Self.classify(prsWithStatus: allPRsWithStatus, username: username)
-        myPRs = classified.mine
-        teamPRs = classified.team
-        aggregateMenuBarStatus = Self.aggregateStatus(for: classified.mine)
+        // Only update state if at least one repo was fetched successfully;
+        // otherwise keep showing the previous data instead of blanking out.
+        if anyRepoSucceeded {
+            let classified = Self.classify(prsWithStatus: allPRsWithStatus, username: username)
+            myPRs = classified.mine
+            teamPRs = classified.team
+            aggregateMenuBarStatus = Self.aggregateStatus(for: classified.mine)
 
-        // Send notifications for status changes on my PRs
-        for pr in classified.mine {
-            guard let run = pr.latestRun else { continue }
-            let previousStatus = previousRunStatuses[pr.pullRequest.number]
+            // Send notifications for status changes on my PRs
+            for pr in classified.mine {
+                guard let run = pr.latestRun else { continue }
+                let previousStatus = previousRunStatuses[pr.pullRequest.number]
 
-            if previousStatus == .inProgress && run.status == .completed {
-                let passed = run.conclusion == .success
-                NotificationService.shared.sendCheckCompleted(
-                    prTitle: pr.pullRequest.title,
-                    passed: passed
-                )
+                if previousStatus == .inProgress && run.status == .completed {
+                    let passed = run.conclusion == .success
+                    NotificationService.shared.sendCheckCompleted(
+                        prTitle: pr.pullRequest.title,
+                        passed: passed
+                    )
+                }
+                previousRunStatuses[pr.pullRequest.number] = run.status
             }
-            previousRunStatuses[pr.pullRequest.number] = run.status
+            lastRefreshedAt = Date()
         }
         isRefreshing = false
+        refreshInProgress = false
     }
 
     func rerunFailedJobs(for prWithStatus: PRWithStatus) async {
@@ -148,5 +218,34 @@ final class CIPanelViewModel: ObservableObject {
 
         let client = GitHubAPIClient(token: token)
         try? await client.rerunFailedJobs(owner: owner, repo: repo, runId: run.id)
+    }
+
+    func mergePullRequest(for prWithStatus: PRWithStatus) async -> Bool {
+        guard let token = try? keychainService.retrieve(forKey: SetupViewModel.tokenKey) else { return false }
+
+        let parts = prWithStatus.pullRequest.htmlUrl.components(separatedBy: "/")
+        guard parts.count >= 5 else { return false }
+        let owner = parts[3]
+        let repo = parts[4]
+
+        let client = GitHubAPIClient(token: token)
+        do {
+            try await client.mergePullRequest(owner: owner, repo: repo, pullNumber: prWithStatus.pullRequest.number)
+            return true
+        } catch {
+            return false
+        }
+    }
+
+    func updateBranchWithRebase(for prWithStatus: PRWithStatus) async {
+        guard let token = try? keychainService.retrieve(forKey: SetupViewModel.tokenKey) else { return }
+
+        let parts = prWithStatus.pullRequest.htmlUrl.components(separatedBy: "/")
+        guard parts.count >= 5 else { return }
+        let owner = parts[3]
+        let repo = parts[4]
+
+        let client = GitHubAPIClient(token: token)
+        try? await client.updateBranchWithRebase(owner: owner, repo: repo, pullNumber: prWithStatus.pullRequest.number)
     }
 }

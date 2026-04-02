@@ -10,12 +10,18 @@ struct CIPanelViewModelTests {
         let myPR = PRWithStatus(
             pullRequest: makePR(number: 1, author: "amerabb"),
             latestRun: nil,
-            failedJobName: nil
+            failedJobName: nil,
+            jobStartedAt: nil,
+            behindBy: 0,
+            mergeable: nil
         )
         let teamPR = PRWithStatus(
             pullRequest: makePR(number: 2, author: "teammate"),
             latestRun: nil,
-            failedJobName: nil
+            failedJobName: nil,
+            jobStartedAt: nil,
+            behindBy: 0,
+            mergeable: nil
         )
 
         let result = CIPanelViewModel.classify(
@@ -36,7 +42,10 @@ struct CIPanelViewModelTests {
         let pr = PRWithStatus(
             pullRequest: makePR(number: 1, author: "amerabb"),
             latestRun: run,
-            failedJobName: nil
+            failedJobName: nil,
+            jobStartedAt: nil,
+            behindBy: 0,
+            mergeable: nil
         )
 
         let status = CIPanelViewModel.aggregateStatus(for: [pr])
@@ -49,8 +58,8 @@ struct CIPanelViewModelTests {
         let passingRun = makeRun(status: .completed, conclusion: .success)
         let failingRun = makeRun(status: .completed, conclusion: .failure)
         let prs = [
-            PRWithStatus(pullRequest: makePR(number: 1, author: "me"), latestRun: passingRun, failedJobName: nil),
-            PRWithStatus(pullRequest: makePR(number: 2, author: "me"), latestRun: failingRun, failedJobName: "Unit Tests"),
+            PRWithStatus(pullRequest: makePR(number: 1, author: "me"), latestRun: passingRun, failedJobName: nil, jobStartedAt: nil, behindBy: 0, mergeable: true),
+            PRWithStatus(pullRequest: makePR(number: 2, author: "me"), latestRun: failingRun, failedJobName: "Unit Tests", jobStartedAt: nil, behindBy: 0, mergeable: false),
         ]
 
         let status = CIPanelViewModel.aggregateStatus(for: prs)
@@ -62,7 +71,7 @@ struct CIPanelViewModelTests {
     func aggregateRunning() {
         let run = makeRun(status: .inProgress, conclusion: nil)
         let prs = [
-            PRWithStatus(pullRequest: makePR(number: 1, author: "me"), latestRun: run, failedJobName: nil),
+            PRWithStatus(pullRequest: makePR(number: 1, author: "me"), latestRun: run, failedJobName: nil, jobStartedAt: nil, behindBy: 0, mergeable: nil),
         ]
 
         let status = CIPanelViewModel.aggregateStatus(for: prs)
@@ -84,8 +93,8 @@ struct CIPanelViewModelTests {
             title: "PR #\(number)",
             htmlUrl: "https://github.com/org/repo/pull/\(number)",
             user: PullRequest.User(login: author),
-            head: PullRequest.BranchRef(ref: "feature-\(number)"),
-            base: PullRequest.BranchRef(ref: "main"),
+            head: PullRequest.BranchRef(ref: "feature-\(number)", sha: nil),
+            base: PullRequest.BranchRef(ref: "main", sha: nil),
             draft: false
         )
     }

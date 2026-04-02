@@ -1,9 +1,16 @@
 import SwiftUI
+import Sparkle
 
 @main
 struct CIMenuBarApp: App {
     @StateObject private var appState = AppState()
     @StateObject private var ciPanelViewModel = CIPanelViewModel()
+    @StateObject private var pollingService = PollingService()
+    private let updaterController = SPUStandardUpdaterController(
+        startingUpdater: true,
+        updaterDelegate: nil,
+        userDriverDelegate: nil
+    )
 
     init() {
         NotificationService.shared.requestPermission()
@@ -13,7 +20,9 @@ struct CIMenuBarApp: App {
         MenuBarExtra {
             MenuBarContent(
                 appState: appState,
-                ciPanelViewModel: ciPanelViewModel
+                ciPanelViewModel: ciPanelViewModel,
+                pollingService: pollingService,
+                updater: updaterController.updater
             )
         } label: {
             Image(systemName: "circle.fill")
@@ -35,8 +44,9 @@ struct CIMenuBarApp: App {
 private struct MenuBarContent: View {
     @ObservedObject var appState: AppState
     @ObservedObject var ciPanelViewModel: CIPanelViewModel
+    @ObservedObject var pollingService: PollingService
+    let updater: SPUUpdater
     @StateObject private var setupViewModel = SetupViewModel()
-    @StateObject private var pollingService = PollingService()
 
     var body: some View {
         Group {
@@ -47,7 +57,8 @@ private struct MenuBarContent: View {
                 CIPanelView(
                     viewModel: ciPanelViewModel,
                     username: appState.githubUsername,
-                    watchedRepos: appState.decodedWatchedRepos
+                    watchedRepos: appState.decodedWatchedRepos,
+                    updater: updater
                 )
             }
         }

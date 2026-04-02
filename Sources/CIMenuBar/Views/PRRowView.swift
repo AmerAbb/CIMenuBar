@@ -2,8 +2,18 @@ import SwiftUI
 
 struct PRRowView: View {
     let prWithStatus: PRWithStatus
-    let onRerun: () -> Void
+    let onRerun: () async -> Void
+    let onUpdateBranch: () async -> Void
+    let onMerge: () async -> Bool
     let onOpenInGitHub: () -> Void
+
+    @State private var rerunState: ActionState = .idle
+    @State private var rebaseState: ActionState = .idle
+    @State private var mergeState: ActionState = .idle
+
+    enum ActionState {
+        case idle, loading, done, failed
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -28,6 +38,8 @@ struct PRRowView: View {
                 Spacer()
                 timingLabel
             }
+            .contentShape(Rectangle())
+            .onTapGesture(perform: onOpenInGitHub)
 
             if let failedJob = prWithStatus.failedJobName {
                 Text("Failed: \(failedJob)")
@@ -37,18 +49,53 @@ struct PRRowView: View {
 
             HStack(spacing: 8) {
                 if prWithStatus.latestRun?.conclusion == .failure {
-                    Button("Re-run failed", action: onRerun)
-                        .font(.caption)
-                        .buttonStyle(.bordered)
-                        .controlSize(.small)
+                    actionButton(label: "Re-run failed", state: rerunState) {
+                        rerunState = .loading
+                        await onRerun()
+                        rerunState = .done
+                    }
                 }
-                Button("Open in GitHub", action: onOpenInGitHub)
-                    .font(.caption)
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
+                if prWithStatus.behindBy > 0 {
+                    // Behind base branch — update first, then merge after CI re-runs
+                    actionButton(label: "Update branch", state: rebaseState) {
+                        rebaseState = .loading
+                        await onUpdateBranch()
+                        rebaseState = .done
+                    }
+                } else if prWithStatus.mergeable == true {
+                    actionButton(label: "Merge", state: mergeState) {
+                        mergeState = .loading
+                        let success = await onMerge()
+                        mergeState = success ? .done : .failed
+                    }
+                }
             }
         }
         .padding(.vertical, 6)
+    }
+
+    private func actionButton(label: String, state: ActionState, action: @escaping () async -> Void) -> some View {
+        Button(action: {
+            Task { await action() }
+        }) {
+            switch state {
+            case .idle:
+                Text(label)
+            case .loading:
+                ProgressView()
+                    .controlSize(.small)
+            case .done:
+                Label("Done", systemImage: "checkmark.circle.fill")
+                    .foregroundStyle(.green)
+            case .failed:
+                Label("Failed", systemImage: "xmark.circle.fill")
+                    .foregroundStyle(.red)
+            }
+        }
+        .font(.caption)
+        .buttonStyle(.bordered)
+        .controlSize(.small)
+        .disabled(state == .loading || state == .done)
     }
 
     @ViewBuilder
@@ -72,9 +119,15 @@ struct PRRowView: View {
     private var timingLabel: some View {
         if let run = prWithStatus.latestRun {
             if run.status == .inProgress {
-                Text(RelativeTimeFormatter.durationString(since: run.createdAt))
-                    .font(.caption)
-                    .foregroundStyle(.orange)
+                if let started = prWithStatus.jobStartedAt {
+                    Text(RelativeTimeFormatter.durationString(since: started))
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                } else {
+                    Text("running...")
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                }
             } else {
                 Text(RelativeTimeFormatter.string(for: run.updatedAt))
                     .font(.caption)

@@ -87,16 +87,60 @@ final class GitHubAPIClient {
         return user.login
     }
 
+    func updateBranchWithRebase(owner: String, repo: String, pullNumber: Int) async throws {
+        var request = buildRequest(
+            path: "/repos/\(owner)/\(repo)/pulls/\(pullNumber)/update-branch",
+            method: "PUT"
+        )
+        let body = ["update_method": "rebase"]
+        request.httpBody = try JSONEncoder().encode(body)
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+
+        let (_, response) = try await session.data(for: request)
+        guard let httpResponse = response as? HTTPURLResponse,
+              (200...299).contains(httpResponse.statusCode) else {
+            throw GitHubAPIError.updateBranchFailed
+        }
+    }
+
     func fetchBranchSha(owner: String, repo: String, branch: String) async throws -> String {
         let request = buildRequest(path: "/repos/\(owner)/\(repo)/git/ref/heads/\(branch)")
         let (data, _) = try await session.data(for: request)
         let ref = try decoder.decode(GitRef.self, from: data)
         return ref.object.sha
     }
+
+    func fetchPRMergeable(owner: String, repo: String, pullNumber: Int) async throws -> Bool? {
+        let request = buildRequest(path: "/repos/\(owner)/\(repo)/pulls/\(pullNumber)")
+        let (data, _) = try await session.data(for: request)
+        let detail = try decoder.decode(PRDetail.self, from: data)
+        return detail.mergeable
+    }
+
+    func mergePullRequest(owner: String, repo: String, pullNumber: Int) async throws {
+        let request = buildRequest(
+            path: "/repos/\(owner)/\(repo)/pulls/\(pullNumber)/merge",
+            method: "PUT"
+        )
+        let (_, response) = try await session.data(for: request)
+        guard let httpResponse = response as? HTTPURLResponse,
+              (200...299).contains(httpResponse.statusCode) else {
+            throw GitHubAPIError.mergeFailed
+        }
+    }
+
+    func fetchBehindBy(owner: String, repo: String, base: String, head: String) async throws -> Int {
+        let request = buildRequest(path: "/repos/\(owner)/\(repo)/compare/\(base)...\(head)")
+        let (data, _) = try await session.data(for: request)
+        let comparison = try decoder.decode(CompareResponse.self, from: data)
+        return comparison.behindBy
+    }
 }
 
 enum GitHubAPIError: Error {
     case rerunFailed
+    case updateBranchFailed
+    case mergeFailed
 }
 
 struct GitRef: Codable {
@@ -105,6 +149,14 @@ struct GitRef: Codable {
     struct RefObject: Codable {
         let sha: String
     }
+}
+
+struct CompareResponse: Codable {
+    let behindBy: Int
+}
+
+struct PRDetail: Codable {
+    let mergeable: Bool?
 }
 
 struct GitHubRepo: Codable, Identifiable {

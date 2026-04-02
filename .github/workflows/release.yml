@@ -1,0 +1,88 @@
+name: Build & Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build-and-release:
+    runs-on: macos-15
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        run: xcodegen generate
+
+      - name: Resolve SPM dependencies
+        run: xcodebuild -project CIMenuBar.xcodeproj -scheme CIMenuBar -resolvePackageDependencies
+
+      - name: Archive
+        run: |
+          xcodebuild -project CIMenuBar.xcodeproj \
+            -scheme CIMenuBar \
+            -configuration Release \
+            -archivePath $RUNNER_TEMP/CIMenuBar.xcarchive \
+            archive
+
+      - name: Export app
+        run: |
+          cat > $RUNNER_TEMP/ExportOptions.plist << 'EOF'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>method</key>
+            <string>mac-application</string>
+            <key>signingStyle</key>
+            <string>automatic</string>
+          </dict>
+          </plist>
+          EOF
+          xcodebuild -exportArchive \
+            -archivePath $RUNNER_TEMP/CIMenuBar.xcarchive \
+            -exportPath $RUNNER_TEMP/export \
+            -exportOptionsPlist $RUNNER_TEMP/ExportOptions.plist
+
+      - name: Zip app
+        run: |
+          cd $RUNNER_TEMP/export
+          zip -r -y $RUNNER_TEMP/CIMenuBar.zip CIMenuBar.app
+
+      - name: Generate appcast
+        env:
+          SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
+        run: |
+          GENERATE_APPCAST=$(find ~/Library/Developer/Xcode/DerivedData -name "generate_appcast" -type f | head -1)
+
+          echo -n "$SPARKLE_PRIVATE_KEY" > $RUNNER_TEMP/sparkle_key
+
+          mkdir -p $RUNNER_TEMP/release
+          cp $RUNNER_TEMP/CIMenuBar.zip $RUNNER_TEMP/release/
+
+          TAG_NAME=${GITHUB_REF#refs/tags/}
+
+          $GENERATE_APPCAST $RUNNER_TEMP/release/ \
+            --ed-key-file $RUNNER_TEMP/sparkle_key \
+            --download-url-prefix "https://github.com/${{ github.repository }}/releases/download/$TAG_NAME/"
+
+          rm $RUNNER_TEMP/sparkle_key
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG_NAME=${GITHUB_REF#refs/tags/}
+          gh release create "$TAG_NAME" \
+            $RUNNER_TEMP/CIMenuBar.zip \
+            $RUNNER_TEMP/release/appcast.xml \
+            --title "$TAG_NAME" \
+            --generate-notes \
+            --latest

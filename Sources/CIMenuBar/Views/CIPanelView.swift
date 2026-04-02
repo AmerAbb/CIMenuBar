@@ -1,33 +1,56 @@
 import SwiftUI
+import Sparkle
 
 struct CIPanelView: View {
     @ObservedObject var viewModel: CIPanelViewModel
     let username: String
     let watchedRepos: [WatchedRepo]
+    let updater: SPUUpdater
 
     @State private var isTeamExpanded = false
+    @StateObject private var checkForUpdatesViewModel: CheckForUpdatesViewModel
+
+    init(viewModel: CIPanelViewModel, username: String, watchedRepos: [WatchedRepo], updater: SPUUpdater) {
+        self.viewModel = viewModel
+        self.username = username
+        self.watchedRepos = watchedRepos
+        self.updater = updater
+        self._checkForUpdatesViewModel = StateObject(wrappedValue: CheckForUpdatesViewModel(updater: updater))
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             header
             Divider()
-            ScrollView {
-                VStack(alignment: .leading, spacing: 0) {
-                    myPRsSection
-                    if !viewModel.teamPRs.isEmpty {
-                        Divider().padding(.vertical, 4)
-                        teamPRsSection
-                    }
+            if !viewModel.hasData {
+                // First load: show a centered spinner
+                VStack {
+                    Spacer()
+                    ProgressView("Loading CI status…")
+                        .frame(maxWidth: .infinity)
+                    Spacer()
                 }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
+                .frame(height: 120)
+            } else {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 0) {
+                        myPRsSection
+                        if !viewModel.teamPRs.isEmpty {
+                            Divider().padding(.vertical, 4)
+                            teamPRsSection
+                        }
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                }
+                .frame(maxHeight: 400)
             }
-            .frame(maxHeight: 400)
             Divider()
             footer
         }
         .frame(width: 380)
         .task {
+            guard viewModel.isStale() else { return }
             await viewModel.refresh(username: username, watchedRepos: watchedRepos)
         }
     }
@@ -69,7 +92,13 @@ struct CIPanelView: View {
                     PRRowView(
                         prWithStatus: prWithStatus,
                         onRerun: {
-                            Task { await viewModel.rerunFailedJobs(for: prWithStatus) }
+                            await viewModel.rerunFailedJobs(for: prWithStatus)
+                        },
+                        onUpdateBranch: {
+                            await viewModel.updateBranchWithRebase(for: prWithStatus)
+                        },
+                        onMerge: {
+                            await viewModel.mergePullRequest(for: prWithStatus)
                         },
                         onOpenInGitHub: {
                             if let url = URL(string: prWithStatus.pullRequest.htmlUrl) {
@@ -89,7 +118,13 @@ struct CIPanelView: View {
                 PRRowView(
                     prWithStatus: prWithStatus,
                     onRerun: {
-                        Task { await viewModel.rerunFailedJobs(for: prWithStatus) }
+                        await viewModel.rerunFailedJobs(for: prWithStatus)
+                    },
+                    onUpdateBranch: {
+                        await viewModel.updateBranchWithRebase(for: prWithStatus)
+                    },
+                    onMerge: {
+                        await viewModel.mergePullRequest(for: prWithStatus)
                     },
                     onOpenInGitHub: {
                         if let url = URL(string: prWithStatus.pullRequest.htmlUrl) {
@@ -106,10 +141,22 @@ struct CIPanelView: View {
 
     private var footer: some View {
         HStack {
-            Text("Watching \(watchedRepos.count) repos")
-                .font(.caption)
-                .foregroundStyle(.tertiary)
+            if let lastRefreshed = viewModel.lastRefreshedAt {
+                Text("Updated \(RelativeTimeFormatter.string(for: lastRefreshed))")
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+            } else {
+                Text("Watching \(watchedRepos.count) repos")
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+            }
             Spacer()
+            Button(action: { updater.checkForUpdates() }) {
+                Image(systemName: "arrow.triangle.2.circlepath")
+            }
+            .buttonStyle(.borderless)
+            .help("Check for Updates")
+            .disabled(!checkForUpdatesViewModel.canCheckForUpdates)
             Button("Quit") {
                 NSApplication.shared.terminate(nil)
             }
