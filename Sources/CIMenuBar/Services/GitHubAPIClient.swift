@@ -87,7 +87,7 @@ final class GitHubAPIClient {
         return user.login
     }
 
-    func updateBranchWithRebase(owner: String, repo: String, pullNumber: Int) async throws {
+    func updateBranch(owner: String, repo: String, pullNumber: Int) async throws {
         var request = buildRequest(
             path: "/repos/\(owner)/\(repo)/pulls/\(pullNumber)/update-branch",
             method: "PUT"

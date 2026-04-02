@@ -242,7 +242,7 @@ final class CIPanelViewModel: ObservableObject {
         }
     }
 
-    func updateBranchWithRebase(for prWithStatus: PRWithStatus) async -> Bool {
+    func updateBranch(for prWithStatus: PRWithStatus) async -> Bool {
         guard let token = try? keychainService.retrieve(forKey: SetupViewModel.tokenKey) else { return false }
 
         let parts = prWithStatus.pullRequest.htmlUrl.components(separatedBy: "/")
@@ -252,7 +252,7 @@ final class CIPanelViewModel: ObservableObject {
 
         let client = GitHubAPIClient(token: token)
         do {
-            try await client.updateBranchWithRebase(owner: owner, repo: repo, pullNumber: prWithStatus.pullRequest.number)
+            try await client.updateBranch(owner: owner, repo: repo, pullNumber: prWithStatus.pullRequest.number)
             return true
         } catch {
             return false

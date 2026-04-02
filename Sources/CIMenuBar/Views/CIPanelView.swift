@@ -95,7 +95,7 @@ struct CIPanelView: View {
                             await viewModel.rerunFailedJobs(for: prWithStatus)
                         },
                         onUpdateBranch: {
-                            await viewModel.updateBranchWithRebase(for: prWithStatus)
+                            await viewModel.updateBranch(for: prWithStatus)
                         },
                         onMerge: {
                             await viewModel.mergePullRequest(for: prWithStatus)
@@ -121,7 +121,7 @@ struct CIPanelView: View {
                         await viewModel.rerunFailedJobs(for: prWithStatus)
                     },
                     onUpdateBranch: {
-                        await viewModel.updateBranchWithRebase(for: prWithStatus)
+                        await viewModel.updateBranch(for: prWithStatus)
                     },
                     onMerge: {
                         await viewModel.mergePullRequest(for: prWithStatus)
