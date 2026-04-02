@@ -62,7 +62,7 @@ struct PRRowView: View {
                         await onUpdateBranch()
                         rebaseState = .done
                     }
-                } else if prWithStatus.mergeable == true {
+                } else if prWithStatus.mergeableState == "clean" {
                     actionButton(label: "Merge", state: mergeState) {
                         mergeState = .loading
                         let success = await onMerge()

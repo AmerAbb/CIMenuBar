@@ -6,7 +6,7 @@ struct PRWithStatus: Identifiable {
     let failedJobName: String?
     let jobStartedAt: Date?
     let behindBy: Int
-    let mergeable: Bool?
+    let mergeableState: String?
 
     var id: Int { pullRequest.number }
 
@@ -129,13 +129,13 @@ final class CIPanelViewModel: ObservableObject {
                                 owner: repo.owner, repo: repo.name,
                                 base: pr.base.ref, head: pr.head.ref
                             )
-                            async let mergeableTask = client.fetchPRMergeable(
+                            async let detailTask = client.fetchPRDetail(
                                 owner: repo.owner, repo: repo.name,
                                 pullNumber: pr.number
                             )
 
                             let behindBy = (try? await behindByTask) ?? 0
-                            let mergeable = try? await mergeableTask
+                            let detail = try? await detailTask
 
                             return PRWithStatus(
                                 pullRequest: pr,
@@ -143,7 +143,7 @@ final class CIPanelViewModel: ObservableObject {
                                 failedJobName: failedJobName,
                                 jobStartedAt: jobStartedAt,
                                 behindBy: behindBy,
-                                mergeable: mergeable
+                                mergeableState: detail?.mergeableState
                             )
                         }
                     }
