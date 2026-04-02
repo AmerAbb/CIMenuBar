@@ -85,10 +85,15 @@ final class CIPanelViewModel: ObservableObject {
         }
 
         let client = GitHubAPIClient(token: token)
-        var allPRsWithStatus: [PRWithStatus] = []
+        // Start with previous data so failed repos keep their old PRs
+        var prsByRepo: [String: [PRWithStatus]] = [:]
+        for pr in myPRs + teamPRs {
+            prsByRepo[pr.repoFullName, default: []].append(pr)
+        }
         var anyRepoSucceeded = false
 
         for repo in watchedRepos {
+            let repoKey = "\(repo.owner)/\(repo.name)"
             do {
                 async let prsTask = client.fetchOpenPRs(owner: repo.owner, repo: repo.name)
                 async let runsTask = client.fetchWorkflowRuns(owner: repo.owner, repo: repo.name)
@@ -155,7 +160,7 @@ final class CIPanelViewModel: ObservableObject {
                     return results
                 }
 
-                allPRsWithStatus.append(contentsOf: enrichedPRs)
+                prsByRepo[repoKey] = enrichedPRs
                 anyRepoSucceeded = true
 
                 // Check for base branch changes (rebase alerts)
@@ -182,6 +187,7 @@ final class CIPanelViewModel: ObservableObject {
         // Only update state if at least one repo was fetched successfully;
         // otherwise keep showing the previous data instead of blanking out.
         if anyRepoSucceeded {
+            let allPRsWithStatus = prsByRepo.values.flatMap { $0 }
             let classified = Self.classify(prsWithStatus: allPRsWithStatus, username: username)
             myPRs = classified.mine
             teamPRs = classified.team

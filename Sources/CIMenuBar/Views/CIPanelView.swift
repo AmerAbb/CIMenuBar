@@ -8,6 +8,7 @@ struct CIPanelView: View {
     let updater: SPUUpdater
 
     @State private var isTeamExpanded = false
+    @State private var selectedRepo: String? // nil = All
     @StateObject private var checkForUpdatesViewModel: CheckForUpdatesViewModel
 
     init(viewModel: CIPanelViewModel, username: String, watchedRepos: [WatchedRepo], updater: SPUUpdater) {
@@ -18,12 +19,26 @@ struct CIPanelView: View {
         self._checkForUpdatesViewModel = StateObject(wrappedValue: CheckForUpdatesViewModel(updater: updater))
     }
 
+    private var filteredMyPRs: [PRWithStatus] {
+        guard let repo = selectedRepo else { return viewModel.myPRs }
+        return viewModel.myPRs.filter { $0.repoFullName == repo }
+    }
+
+    private var filteredTeamPRs: [PRWithStatus] {
+        guard let repo = selectedRepo else { return viewModel.teamPRs }
+        return viewModel.teamPRs.filter { $0.repoFullName == repo }
+    }
+
+    private var allRepoNames: [String] {
+        let all = (viewModel.myPRs + viewModel.teamPRs).map(\.repoFullName)
+        return Array(Set(all)).sorted()
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             header
             Divider()
             if !viewModel.hasData {
-                // First load: show a centered spinner
                 VStack {
                     Spacer()
                     ProgressView("Loading CI status…")
@@ -35,7 +50,7 @@ struct CIPanelView: View {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 0) {
                         myPRsSection
-                        if !viewModel.teamPRs.isEmpty {
+                        if !filteredTeamPRs.isEmpty {
                             Divider().padding(.vertical, 4)
                             teamPRsSection
                         }
@@ -57,8 +72,39 @@ struct CIPanelView: View {
 
     private var header: some View {
         HStack {
-            Text("CI Status")
-                .font(.headline)
+            Menu {
+                Button {
+                    selectedRepo = nil
+                } label: {
+                    if selectedRepo == nil {
+                        Label("All Repos", systemImage: "checkmark")
+                    } else {
+                        Text("All Repos")
+                    }
+                }
+                Divider()
+                ForEach(allRepoNames, id: \.self) { repo in
+                    Button {
+                        selectedRepo = repo
+                    } label: {
+                        if selectedRepo == repo {
+                            Label(repo, systemImage: "checkmark")
+                        } else {
+                            Text(repo)
+                        }
+                    }
+                }
+            } label: {
+                HStack(spacing: 4) {
+                    Text(selectedRepo ?? "All Repos")
+                        .font(.headline)
+                    Image(systemName: "chevron.down")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .menuStyle(.borderlessButton)
+            .fixedSize()
             Spacer()
             Button(action: {
                 Task { await viewModel.refresh(username: username, watchedRepos: watchedRepos) }
@@ -82,61 +128,72 @@ struct CIPanelView: View {
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
 
-            if viewModel.myPRs.isEmpty {
+            if filteredMyPRs.isEmpty {
                 Text("No open PRs")
                     .font(.caption)
                     .foregroundStyle(.tertiary)
                     .padding(.vertical, 8)
+            } else if selectedRepo != nil {
+                // Filtered to one repo — flat list
+                prList(filteredMyPRs)
             } else {
-                ForEach(viewModel.myPRs) { prWithStatus in
-                    PRRowView(
-                        prWithStatus: prWithStatus,
-                        onRerun: {
-                            await viewModel.rerunFailedJobs(for: prWithStatus)
-                        },
-                        onUpdateBranch: {
-                            await viewModel.updateBranch(for: prWithStatus)
-                        },
-                        onMerge: {
-                            await viewModel.mergePullRequest(for: prWithStatus)
-                        },
-                        onOpenInGitHub: {
-                            if let url = URL(string: prWithStatus.pullRequest.htmlUrl) {
-                                NSWorkspace.shared.open(url)
-                            }
-                        }
-                    )
-                    Divider()
-                }
+                // All repos — grouped
+                groupedPRList(filteredMyPRs)
             }
         }
     }
 
     private var teamPRsSection: some View {
-        DisclosureGroup("Team PRs (\(viewModel.teamPRs.count))", isExpanded: $isTeamExpanded) {
-            ForEach(viewModel.teamPRs) { prWithStatus in
-                PRRowView(
-                    prWithStatus: prWithStatus,
-                    onRerun: {
-                        await viewModel.rerunFailedJobs(for: prWithStatus)
-                    },
-                    onUpdateBranch: {
-                        await viewModel.updateBranch(for: prWithStatus)
-                    },
-                    onMerge: {
-                        await viewModel.mergePullRequest(for: prWithStatus)
-                    },
-                    onOpenInGitHub: {
-                        if let url = URL(string: prWithStatus.pullRequest.htmlUrl) {
-                            NSWorkspace.shared.open(url)
-                        }
-                    }
-                )
-                Divider()
+        DisclosureGroup("Team PRs (\(filteredTeamPRs.count))", isExpanded: $isTeamExpanded) {
+            if selectedRepo != nil {
+                prList(filteredTeamPRs)
+            } else {
+                groupedPRList(filteredTeamPRs)
             }
         }
         .font(.subheadline)
         .foregroundStyle(.secondary)
+    }
+
+    private func groupedPRList(_ prs: [PRWithStatus]) -> some View {
+        let grouped = Dictionary(grouping: prs, by: \.repoFullName)
+        return ForEach(grouped.keys.sorted(), id: \.self) { repo in
+            Text(repo)
+                .font(.caption)
+                .foregroundStyle(.tertiary)
+                .padding(.top, 6)
+            ForEach(grouped[repo]!) { prWithStatus in
+                prRow(prWithStatus)
+                Divider()
+            }
+        }
+    }
+
+    private func prList(_ prs: [PRWithStatus]) -> some View {
+        ForEach(prs) { prWithStatus in
+            prRow(prWithStatus)
+            Divider()
+        }
+    }
+
+    private func prRow(_ prWithStatus: PRWithStatus) -> some View {
+        PRRowView(
+            prWithStatus: prWithStatus,
+            onRerun: {
+                await viewModel.rerunFailedJobs(for: prWithStatus)
+            },
+            onUpdateBranch: {
+                await viewModel.updateBranch(for: prWithStatus)
+            },
+            onMerge: {
+                await viewModel.mergePullRequest(for: prWithStatus)
+            },
+            onOpenInGitHub: {
+                if let url = URL(string: prWithStatus.pullRequest.htmlUrl) {
+                    NSWorkspace.shared.open(url)
+                }
+            }
+        )
     }
 
     private var footer: some View {
