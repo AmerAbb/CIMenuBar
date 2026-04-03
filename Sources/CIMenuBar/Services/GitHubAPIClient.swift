@@ -110,6 +110,12 @@ final class GitHubAPIClient {
         return ref.object.sha
     }
 
+    func fetchRepoSettings(owner: String, repo: String) async throws -> RepoSettings {
+        let request = buildRequest(path: "/repos/\(owner)/\(repo)")
+        let (data, _) = try await session.data(for: request)
+        return try decoder.decode(RepoSettings.self, from: data)
+    }
+
     func fetchPRDetail(owner: String, repo: String, pullNumber: Int) async throws -> PRDetail {
         let request = buildRequest(path: "/repos/\(owner)/\(repo)/pulls/\(pullNumber)")
         let (data, _) = try await session.data(for: request)
@@ -157,6 +163,10 @@ struct CompareResponse: Codable {
 struct PRDetail: Codable {
     let mergeable: Bool?
     let mergeableState: String?
+}
+
+struct RepoSettings: Codable {
+    let allowUpdateBranch: Bool?
 }
 
 struct GitHubRepo: Codable, Identifiable {

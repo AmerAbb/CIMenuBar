@@ -55,7 +55,7 @@ struct PRRowView: View {
                         rerunState = success ? .done : .failed
                     }
                 }
-                if prWithStatus.behindBy > 0 {
+                if prWithStatus.behindBy > 0 && prWithStatus.allowUpdateBranch {
                     // Behind base branch — update first, then merge after CI re-runs
                     actionButton(label: "Update branch", state: rebaseState) {
                         rebaseState = .loading

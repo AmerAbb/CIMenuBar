@@ -7,6 +7,7 @@ struct PRWithStatus: Identifiable {
     let jobStartedAt: Date?
     let behindBy: Int
     let mergeableState: String?
+    let allowUpdateBranch: Bool
 
     var id: Int { pullRequest.number }
 
@@ -97,7 +98,10 @@ final class CIPanelViewModel: ObservableObject {
             do {
                 async let prsTask = client.fetchOpenPRs(owner: repo.owner, repo: repo.name)
                 async let runsTask = client.fetchWorkflowRuns(owner: repo.owner, repo: repo.name)
+                async let settingsTask = client.fetchRepoSettings(owner: repo.owner, repo: repo.name)
                 let (prs, runs) = try await (prsTask, runsTask)
+                let repoSettings = try? await settingsTask
+                let allowUpdate = repoSettings?.allowUpdateBranch ?? true
 
                 // Enrich each PR in parallel
                 let enrichedPRs: [PRWithStatus] = await withTaskGroup(of: PRWithStatus?.self) { group in
@@ -148,7 +152,8 @@ final class CIPanelViewModel: ObservableObject {
                                 failedJobName: failedJobName,
                                 jobStartedAt: jobStartedAt,
                                 behindBy: behindBy,
-                                mergeableState: detail?.mergeableState
+                                mergeableState: detail?.mergeableState,
+                                allowUpdateBranch: allowUpdate
                             )
                         }
                     }
