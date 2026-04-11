@@ -8,6 +8,7 @@ struct PRWithStatus: Identifiable {
     let behindBy: Int
     let mergeableState: String?
     let allowUpdateBranch: Bool
+    let asanaURL: String?
 
     var id: Int { pullRequest.number }
 
@@ -15,6 +16,18 @@ struct PRWithStatus: Identifiable {
         let parts = pullRequest.htmlUrl.components(separatedBy: "/")
         guard parts.count >= 5 else { return "" }
         return "\(parts[3])/\(parts[4])"
+    }
+
+    private static let asanaPattern = try! NSRegularExpression(
+        pattern: #"https://app\.asana\.com/0/\d+/\d+"#
+    )
+
+    static func extractAsanaURL(from body: String?) -> String? {
+        guard let body else { return nil }
+        let range = NSRange(body.startIndex..., in: body)
+        guard let match = asanaPattern.firstMatch(in: body, range: range),
+              let swiftRange = Range(match.range, in: body) else { return nil }
+        return String(body[swiftRange])
     }
 }
 
@@ -153,7 +166,8 @@ final class CIPanelViewModel: ObservableObject {
                                 jobStartedAt: jobStartedAt,
                                 behindBy: behindBy,
                                 mergeableState: detail?.mergeableState,
-                                allowUpdateBranch: allowUpdate
+                                allowUpdateBranch: allowUpdate,
+                                asanaURL: PRWithStatus.extractAsanaURL(from: pr.body)
                             )
                         }
                     }
