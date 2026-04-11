@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 struct PRRowView: View {
@@ -48,6 +49,16 @@ struct PRRowView: View {
             }
 
             HStack(spacing: 8) {
+                if let asanaURL = prWithStatus.asanaURL,
+                   let url = URL(string: asanaURL) {
+                    Button {
+                        NSWorkspace.shared.open(url)
+                    } label: {
+                        AsanaIcon()
+                    }
+                    .buttonStyle(.borderless)
+                    .help("Open Asana task")
+                }
                 if prWithStatus.latestRun?.conclusion == .failure {
                     actionButton(label: "Re-run failed", state: rerunState) {
                         rerunState = .loading
@@ -134,5 +145,33 @@ struct PRRowView: View {
                     .foregroundStyle(.secondary)
             }
         }
+    }
+}
+
+private struct AsanaIcon: View {
+    var body: some View {
+        Canvas { context, size in
+            let dotRadius = size.width * 0.18
+            let centerX = size.width / 2
+            let topY = size.height * 0.28
+            let bottomY = size.height * 0.72
+            let offsetX = size.width * 0.27
+
+            let dots = [
+                CGPoint(x: centerX, y: topY),
+                CGPoint(x: centerX - offsetX, y: bottomY),
+                CGPoint(x: centerX + offsetX, y: bottomY),
+            ]
+            for dot in dots {
+                let rect = CGRect(
+                    x: dot.x - dotRadius,
+                    y: dot.y - dotRadius,
+                    width: dotRadius * 2,
+                    height: dotRadius * 2
+                )
+                context.fill(Path(ellipseIn: rect), with: .color(.primary))
+            }
+        }
+        .frame(width: 12, height: 12)
     }
 }
