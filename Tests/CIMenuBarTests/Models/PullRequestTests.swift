@@ -35,4 +35,47 @@ struct PullRequestTests {
         #expect(pullRequest.base.ref == "main")
         #expect(pullRequest.draft == false)
     }
+
+    @Test("Decodes body field from GitHub API JSON")
+    func decodesBody() throws {
+        let json = """
+        {
+            "number": 42,
+            "title": "Add feature",
+            "html_url": "https://github.com/org/repo/pull/42",
+            "user": { "login": "amerabb" },
+            "head": { "ref": "feature-branch" },
+            "base": { "ref": "main" },
+            "draft": false,
+            "body": "Fixes the layout\\n\\nhttps://app.asana.com/0/0/1213945434968148"
+        }
+        """.data(using: .utf8)!
+
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+        let pr = try decoder.decode(PullRequest.self, from: json)
+
+        #expect(pr.body == "Fixes the layout\n\nhttps://app.asana.com/0/0/1213945434968148")
+    }
+
+    @Test("Decodes PR with nil body")
+    func decodesNilBody() throws {
+        let json = """
+        {
+            "number": 42,
+            "title": "Add feature",
+            "html_url": "https://github.com/org/repo/pull/42",
+            "user": { "login": "amerabb" },
+            "head": { "ref": "feature-branch" },
+            "base": { "ref": "main" },
+            "draft": false
+        }
+        """.data(using: .utf8)!
+
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+        let pr = try decoder.decode(PullRequest.self, from: json)
+
+        #expect(pr.body == nil)
+    }
 }

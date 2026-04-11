@@ -98,7 +98,8 @@ struct CIPanelViewModelTests {
             user: PullRequest.User(login: author),
             head: PullRequest.BranchRef(ref: "feature-\(number)", sha: nil),
             base: PullRequest.BranchRef(ref: "main", sha: nil),
-            draft: false
+            draft: false,
+            body: nil
         )
     }
 

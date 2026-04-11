@@ -8,6 +8,7 @@ struct PullRequest: Codable, Identifiable {
     let head: BranchRef
     let base: BranchRef
     let draft: Bool
+    let body: String?
 
     var id: Int { number }
 
